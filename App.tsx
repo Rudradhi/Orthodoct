@@ -21,6 +21,7 @@ import {
   Sun,
   Moon
 } from 'lucide-react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Button } from '@/components/ui/button';
 import { PromptBox } from '@/src/components/PromptBox';
 import { MedicalBackground } from '@/src/components/MedicalBackground';
@@ -655,6 +656,7 @@ export default function App() {
           </div>
         </div>
       </footer>
+      <SpeedInsights />
     </div>
   );
 }
