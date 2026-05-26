@@ -1,0 +1,110 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {uid}
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (optional)
+    //   - displayName: string (optional)
+    //   - photoURL: string (optional)
+    //   - phoneNumber: string (optional)
+    //   - createdAt: timestamp (optional)
+    //   - lastLogin: timestamp (optional)
+    //   - role: string (required, ['patient', 'admin'])
+    //
+    // Collection: analyses
+    // Document ID: {analysisId}
+    // Fields:
+    //   - id: string (optional)
+    //   - uid: string (required)
+    //   - issue: string (required, max 2000 chars)
+    //   - result: string (optional)
+    //   - createdAt: timestamp (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+         (request.auth.token.email == "yourudradhi@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    function isRecent(ts) {
+      return ts is timestamp && ts > request.time - duration.value(5, 'm') && ts <= request.time;
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.uid is string && data.uid.size() > 0 &&
+             (!('email' in data) || data.email == null || isValidEmail(data.email)) &&
+             (!('displayName' in data) || data.displayName == null || (data.displayName is string && data.displayName.size() < 100)) &&
+             (!('photoURL' in data) || data.photoURL == null || isValidUrl(data.photoURL)) &&
+             (!('phoneNumber' in data) || data.phoneNumber == null || (data.phoneNumber is string && data.phoneNumber.size() < 20)) &&
+             data.role in ['patient', 'admin'];
+    }
+
+    function isValidAnalysis(data) {
+      return data.keys().hasAll(['uid', 'issue', 'createdAt']) &&
+             data.uid == request.auth.uid &&
+             data.issue is string && data.issue.size() > 0 && data.issue.size() < 2000 &&
+             data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      
+      allow create: if isAuthenticated() && 
+                      isOwner(userId) && 
+                      isValidUser(request.resource.data) && 
+                      (request.resource.data.role == 'patient' || isAdmin());
+                      
+      allow update: if isAuthenticated() && 
+                      isOwner(userId) && 
+                      isValidUser(request.resource.data) && 
+                      (request.resource.data.role == resource.data.role || isAdmin());
+                      
+      allow delete: if isAdmin();
+    }
+
+    match /analyses/{analysisId} {
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidAnalysis(request.resource.data);
+      allow update: if isAuthenticated() && isAdmin();
+      allow delete: if isAdmin();
+    }
+  }
+}
